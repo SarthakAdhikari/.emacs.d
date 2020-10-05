@@ -22,16 +22,34 @@
 ;; Add Ace Windows Config
 ;;----------------------------------------------------------------------------
 (global-set-key (kbd "M-o") 'ace-window)
+(global-set-key (kbd "C-s-u") 'ace-swap-window)
 (setq aw-keys '(?a ?b ?c ?d ?e ?f ?g ?h ?i))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Fill column indicator
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(global-display-fill-column-indicator-mode -1)
+(toggle-frame-fullscreen)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Display configs
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defun sarthak/toggle-file-name ()
+  "Toggle the entire file name in modeline."
+  (interactive)
+  (setq doom-modeline-buffer-file-name-style (if (eq doom-modeline-buffer-file-name-style 'auto)
+                                                 'truncate-except-project
+                                               'auto
+                                               ))
+
+  )
+(global-set-key (kbd "C-s-f") 'sarthak/toggle-file-name)
+(global-set-key (kbd "C-s-m") 'hide-mode-line-mode)
+
 (doom-modeline-mode)
-(set-face-attribute 'default nil :height 250)
+(set-face-attribute 'default nil :height 180)
+
 (add-hook 'text-mode-hook '(lambda ()  (global-display-line-numbers-mode -1)))
 (add-hook 'prog-mode-hook '(lambda ()  (global-display-line-numbers-mode -1)))
-(global-set-key (kbd "C-s-m") 'hide-mode-line-mode)
 (add-hook 'python-mode-hook (lambda () (setq display-line-numbers nil)))
 
 ;;----------------------------------------------------------------------------
@@ -49,13 +67,17 @@
   (interactive "cSurround with: ")
   (progn
     (save-excursion
-      (let ((end(+ 1 (region-end))) ))
-      (goto-char (region-beginning))
-      (message "%s" (region-beginning))
-      (insert char)
-      (goto-char end)
-      (insert char)
-      (deactivate-mark)
+      (let (
+            (end(+ 1 (region-end)))
+            )
+        (goto-char (region-beginning))
+        (message "%s" (region-beginning))
+        (insert char)
+        (goto-char end)
+        (insert char)
+        (deactivate-mark)
+
+        )
       ))
   )
 
@@ -113,6 +135,15 @@
 ;;----------------------------------------------------------------------------
 ;; (define-key org-mode-map (kbd "C-c C-x C-l") 'lsp-org)
 (defvar org-blocks-hidden nil)
+
+(defun org-in-tangle-dir (sub-path)
+  "Expand the SUB-PATH into the directory given by the tangle-dir
+property if that property exists, else use the
+`default-directory'."
+  (expand-file-name sub-path
+                    (or
+                     (org-entry-get (point) "tangle-dir" 'inherit)
+                     (default-directory))))
 
 (defun org-toggle-blocks ()
   (interactive)
@@ -520,12 +551,43 @@ Else return ().method for Py3."
   (interactive)
   (my/python-navigate-up-to-class-statement)
   (beginning-of-defun))
-(eval-after-load "python-mode" '(progn
-                                  (define-key python-mode-map (kbd "M-k" ) 'my/python-navigate-to-next-python-class)
-                                  (define-key python-mode-map (kbd "C-S-k") 'my/python-navigate-to-previous-python-class)
-                                  ))
 
+(add-hook 'python-mode-hook '(lambda () (progn
+                                          (define-key python-mode-map (kbd "M-k" ) 'my/python-navigate-to-next-python-class)
+                                          (define-key python-mode-map (kbd "C-S-k") 'my/python-navigate-to-previous-python-class)
 
+                                          ))
+          )
+;; (eval-after-load "python-mode" '(progn
+;; ))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Speedread
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(require 'speedread)
 (provide 'init-local)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; bm
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(require 'bm)
+
+(setq bm-cycle-all-buffers t)
+(setq bm-repository-file "~/.emacs.d/bm-repository")
+(setq-default bm-buffer-persistence t)
+(add-hook 'after-init-hook 'bm-repository-load)
+(add-hook 'kill-buffer-hook #'bm-buffer-save)
+(add-hook 'kill-emacs-hook #'(lambda nil
+                               (bm-buffer-save-all)
+                               (bm-repository-save)))
+(add-hook 'find-file-hooks   #'bm-buffer-restore)
+(add-hook 'after-revert-hook #'bm-buffer-restore)
+(add-hook 'after-save-hook #'bm-buffer-save)
+(global-set-key (kbd "<C-f2>") 'bm-toggle)
+(global-set-key (kbd "<f2>")   'bm-next)
+(global-set-key (kbd "<S-f2>") 'bm-previous)
+(global-set-key (kbd "<C-f3>") 'bm-remove-all-current-buffer)
+(global-set-key (kbd "C-s-b") 'bm-show-all)
+
+
 ;;; init-local.el ends here
