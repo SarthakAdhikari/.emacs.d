@@ -9,19 +9,180 @@
 (xah-fly-keys-set-layout 'qwerty) ; required
 (xah-fly-keys 1)
 (global-set-key [remap xah-fly-M-x] 'execute-extended-command)
+(define-key xah-fly-key-map (kbd "n") 'swiper)
+(define-key xah-fly-insert-map (kbd "C-S-s") 'isearch-forward)
+(define-key overriding-terminal-local-map (kbd "C-S-s") nil)
 
+(global-set-key (kbd "C-s-'") 'xah-forward-quote-smart)
+(global-set-key (kbd "C-S-s") 'isearch-forward)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; pdftools
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(with-eval-after-load "doom-modeline"
+  (doom-modeline-def-modeline 'pdf
+    '(bar window-number modals matches buffer-info pdf-pages)
+    '(misc-info major-mode process vcs))
+  )
+
+(pdf-tools-install)
+(add-hook 'pdf-view-mode-hook 'pdf-view-restore-mode)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Scroll other window
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun my/scroll-other-window ()
+  (interactive)
+  (let* ((wind (other-window-for-scrolling))
+         (mode (with-selected-window wind major-mode)))
+    (if (eq mode 'pdf-view-mode)
+        (with-selected-window wind
+          (pdf-view-next-line-or-next-page 2))
+      (scroll-other-window 2))))
+
+(defun my/scroll-other-window-down ()
+  (interactive)
+  (let* ((wind (other-window-for-scrolling))
+         (mode (with-selected-window wind major-mode)))
+    (if (eq mode 'pdf-view-mode)
+        (with-selected-window wind
+          (progn
+            (pdf-view-previous-line-or-previous-page 2)
+            (other-window 1)))
+      (scroll-other-window-down 2))))
+
+
+(define-key global-map (kbd "C-M-k") 'my/scroll-other-window)
+(define-key emacs-lisp-mode-map (kbd "C-M-i") nil)
+(require 'paredit)
+(define-key paredit-mode-map (kbd "C-k") nil)
+
+(require 'python)
+(define-key python-mode-map (kbd "C-k") nil)
+(define-key python-mode-map (kbd "C-M-i") nil)
+(global-unset-key (kbd "C-k"))
+(define-key global-map (kbd "C-M-i") 'my/scroll-other-window-down)
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Continuous scroll
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; (require 'org-pdftools)
+;; (add-hook 'org-load-hook 'org-pdftools-setup-link)
+
+;; (setq quelpa-update-melpa-p nil)
+;; (quelpa '(pdf-continuous-scroll-mode :fetcher github
+;;                                      :repo "dalanicolai/pdf-continuous-scroll-mode.el"))
+
+(require 'pdf-continuous-scroll-mode)
+(add-hook 'pdf-view-mode-hook 'pdf-continuous-scroll-mode)
+(define-key pdf-continuous-scroll-mode-map  [remap next-line] #'pdf-continuous-scroll-forward)
+
+(define-key pdf-view-mode-map (kbd "C-c C-s") 'pdf-continuous-scroll-mode)
+(define-key pdf-continuous-scroll-mode-map  [remap previous-line] #'pdf-continuous-scroll-backward)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Org PDF View(because of a bug in org-pdftools)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(require 'org)
+(require 'pdf-tools)
+(require 'pdf-view)
+
+(if (fboundp 'org-link-set-parameters)
+    (org-link-set-parameters "pdfview"
+                             :follow #'org-pdfview-open
+                             :complete #'org-pdfview-complete-link
+                             :store #'org-pdfview-store-link)
+  (org-add-link-type "pdfview" 'org-pdfview-open)
+  (add-hook 'org-store-link-functions 'org-pdfview-store-link))
+
+(defun org-pdfview-open (link)
+  "Open LINK in pdf-view-mode."
+  (cond ((string-match "\\(.*\\)::\\([0-9]*\\)\\+\\+\\([[0-9]\\.*[0-9]*\\)"  link)
+         (let* ((path (match-string 1 link))
+                (page (string-to-number (match-string 2 link)))
+                (height (string-to-number (match-string 3 link))))
+           (org-open-file path 1)
+           (pdf-view-goto-page page)
+           (image-set-window-vscroll
+            (round (/ (* height (cdr (pdf-view-image-size))) (frame-char-height))))))
+        ((string-match "\\(.*\\)::\\([0-9]+\\)$"  link)
+         (let* ((path (match-string 1 link))
+                (page (string-to-number (match-string 2 link))))
+           (org-open-file path 1)
+           (pdf-view-goto-page page)))
+        (t
+         (org-open-file link 1))
+        ))
+
+(defun org-pdfview-store-link ()
+  "Store a link to a pdfview buffer."
+  (when (eq major-mode 'pdf-view-mode)
+    ;; This buffer is in pdf-view-mode
+    (let* ((path buffer-file-name)
+           (page (pdf-view-current-page))
+           (link (concat "pdfview:" path "::" (number-to-string page))))
+      (org-store-link-props
+       :type "pdfview"
+       :link link
+       :description path))))
+
+(defun org-pdfview-export (link description format)
+  "Export the pdfview LINK with DESCRIPTION for FORMAT from Org files."
+  (let* ((path (when (string-match "\\(.+\\)::.+" link)
+                 (match-string 1 link)))
+         (desc (or description link)))
+    (when (stringp path)
+      (setq path (org-link-escape (expand-file-name path)))
+      (cond
+       ((eq format 'html) (format "<a href=\"%s\">%s</a>" path desc))
+       ((eq format 'latex) (format "\\href{%s}{%s}" path desc))
+       ((eq format 'ascii) (format "%s (%s)" desc path))
+       (t path)))))
+
+(defun org-pdfview-complete-link (&optional arg)
+  "Use the existing file name completion for file.
+Links to get the file name, then ask the user for the page number
+and append it."
+  (concat (replace-regexp-in-string "^file:" "pdfview:" (org-file-complete-link arg))
+          "::"
+          (read-from-minibuffer "Page:" "1")))
+
+(add-to-list 'org-file-apps
+             '("\\.pdf\\'" . (lambda (file link)
+                               (org-pdfview-open link))))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Navigation
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(global-set-key (kbd "C-c M-f") 'follow-mode)
+(global-set-key (kbd "C-c v") 'picture-mode)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Ivy
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (require 'ivy)
 (require 'ivy-avy)
+(setq avy-timeout-seconds 0.3)
 (define-key ivy-minibuffer-map (kbd "M-i") 'ivy-beginning-of-buffer)
 (define-key ivy-minibuffer-map (kbd "M-k") 'ivy-end-of-buffer)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Occur
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(define-key occur-mode-map (kbd "M-o") 'occur-mode-display-occurrence)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Good defaults
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(setq help-window-select t)
 
 ;;----------------------------------------------------------------------------
 ;; Add Ace Windows Config
 ;;----------------------------------------------------------------------------
 (global-set-key (kbd "M-o") 'ace-window)
+(global-set-key (kbd "C-c C-k") 'ace-delete-window)
 (global-set-key (kbd "C-s-u") 'ace-swap-window)
 (setq aw-keys '(?a ?b ?c ?d ?e ?f ?g ?h ?i))
 
@@ -46,7 +207,7 @@
 (global-set-key (kbd "C-s-m") 'hide-mode-line-mode)
 
 (doom-modeline-mode)
-(set-face-attribute 'default nil :height 180)
+(set-face-attribute 'default nil :height 140)
 
 (add-hook 'text-mode-hook '(lambda ()  (global-display-line-numbers-mode -1)))
 (add-hook 'prog-mode-hook '(lambda ()  (global-display-line-numbers-mode -1)))
@@ -66,19 +227,20 @@
   "Surronds a selected region with char."
   (interactive "cSurround with: ")
   (progn
-    (save-excursion
-      (let (
-            (end(+ 1 (region-end)))
-            )
-        (goto-char (region-beginning))
-        (message "%s" (region-beginning))
-        (insert char)
-        (goto-char end)
-        (insert char)
-        (deactivate-mark)
+    ;; (save-excursion
+    (let (
+          (end(+ 1 (region-end)))
+          )
+      (goto-char (region-beginning))
+      (message "%s" (region-beginning))
+      (insert char)
+      (goto-char end)
+      (insert char)
+      (deactivate-mark)
 
-        )
-      ))
+      )
+    ;; )
+    )
   )
 
 (global-set-key (kbd "C-c s") 'sarthak/surround-with)
@@ -164,7 +326,6 @@ property if that property exists, else use the
 ;;                                (define-key org-mode-map (kbd "C-c t") 'org-toggle-blocks)
 ;;                                ))
 (add-hook 'text-mode-hook (lambda ()
-                            (interactive)
                             (if (eq major-mode 'Info-mode)
                                 (progn (
                                         (message "Olivetti text-mode-hook")
@@ -176,10 +337,21 @@ property if that property exists, else use the
                               ()
                               )
                             ))
-
+(add-hook 'prog-mode-hook (lambda ()
+                            (text-scale-increase 1)
+                            ))
+(add-hook 'dired-mode-hook (lambda ()
+                             (text-scale-increase 2)
+                             )
+          )
+(add-hook 'vterm-mode-hook (lambda ()
+                             (text-scale-increase 3)
+                             )
+          )
 (global-set-key (kbd "C-c l") 'org-store-link)
 (global-set-key (kbd "C-c a") 'org-agenda)
 (global-set-key (kbd "C-c c") 'org-capture)
+(setq org-confirm-babel-evaluate nil)
 ;; (org-babel-do-load-languages
 ;;  'org-babel-load-languages '((ruby . t)))
 
@@ -216,7 +388,6 @@ property if that property exists, else use the
 (setq org-src-tab-acts-natively t)
 (setq org-src-preserve-indentation t)
 (setq  org-edit-src-content-indentation 0)
-
 ;;----------------------------------------------------------------------------
 ;; Workarounds
 ;;----------------------------------------------------------------------------
@@ -227,14 +398,20 @@ property if that property exists, else use the
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; undo tree mode                                                         ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
+(require 'undo-tree)
 ;;turn on everywhere
+(define-key undo-tree-map (kbd "C-l") nil)
+(define-key undo-tree-map (kbd "C-/") nil)
+
 (global-undo-tree-mode 1)
+
 ;; make ctrl-z undo
 (global-set-key (kbd "C-z") 'undo)
 ;; make ctrl-Z redo
 (defalias 'redo 'undo-tree-redo)
 (global-set-key (kbd "C-S-z") 'redo)
+(setq undo-tree-auto-save-history t)
+(setq undo-tree-history-directory-alist '(("." . "~/.emacs.d/undo-history")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Shell configs
@@ -245,10 +422,42 @@ property if that property exists, else use the
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Windmove
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(global-set-key (kbd "C-S-i") 'windmove-up)
-(global-set-key (kbd "C-S-k") 'windmove-down)
-(global-set-key (kbd "C-S-l") 'windmove-right)
-(global-set-key (kbd "C-S-j") 'windmove-left)
+(global-set-key (kbd "s-i") 'windmove-up)
+(global-set-key (kbd "s-k") 'windmove-down)
+(global-set-key (kbd "s-l") 'windmove-right)
+(global-set-key (kbd "s-j") 'windmove-left)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Emmet
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(add-hook 'sgml-mode-hook 'emmet-mode) ;; Auto-start on any markup modes
+(add-hook 'web-mode-hook 'emmet-mode)
+(add-hook 'css-mode-hook  'emmet-mode) ;; enable Emmet's css abbreviation.
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Web mode
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(require 'web-mode)
+(add-to-list 'auto-mode-alist '("\\.phtml\\'" . web-mode))
+(add-to-list 'auto-mode-alist '("\\.tpl\\.php\\'" . web-mode))
+(add-to-list 'auto-mode-alist '("\\.[agj]sp\\'" . web-mode))
+(add-to-list 'auto-mode-alist '("\\.as[cp]x\\'" . web-mode))
+(add-to-list 'auto-mode-alist '("\\.erb\\'" . web-mode))
+(add-to-list 'auto-mode-alist '("\\.mustache\\'" . web-mode))
+(add-to-list 'auto-mode-alist '("\\.djhtml\\'" . web-mode))
+(add-to-list 'auto-mode-alist '("\\.html?\\'" . web-mode))
+(setq web-mode-engines-alist '(("django" . "\\.html\\'")))
+(add-hook 'web-mode-hook '(lambda () (electric-pair-local-mode 0)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Flycheck
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(require 'flycheck)
+(define-key flycheck-mode-map flycheck-keymap-prefix nil)
+(setq flycheck-keymap-prefix (kbd "C-c f"))
+(define-key flycheck-mode-map flycheck-keymap-prefix
+  flycheck-command-map)
+(global-set-key (kbd "C-c h") 'flycheck-mode)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Truncate lines
@@ -381,13 +590,14 @@ Else return ().method for Py3."
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Show-trailing-whitespace
+;; Whitespace
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defun toggle-trailing-whitespace ()
   "Doc-string for `my-switch` function."
   (interactive)
   (setq show-trailing-whitespace (if (eq show-trailing-whitespace nil) 1 nil)))
 (define-key xah-fly-leader-key-map (kbd "l m") 'toggle-trailing-whitespace)
+(ws-butler-global-mode 1);
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; whichkey
@@ -396,16 +606,23 @@ Else return ().method for Py3."
 (setq which-key-idle-secondary-delay 0.05)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; fringe
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(fringe-mode)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; LSP-ui
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (setq lsp-ui-doc-enable nil)
 (setq lsp-eldoc-hook nil)
+(setq lsp-ui-sideline-enable nil)
 (global-set-key (kbd "C-c C-m") 'lsp-ui-doc-glance)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Company
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(setq company-dabbrev-downcase 0)
+(global-set-key (kbd "C-/") 'company-complete)
+(setq company-dabbrev-downcase nil)
 (setq company-idle-delay 0.05)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -413,6 +630,7 @@ Else return ().method for Py3."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (require 'yasnippet)
 (yas-global-mode 1)
+
 ;; (setq yas-snippet-dirs
 ;;       '("~/.emacs.d/snippets"                 ;; personal snippets
 ;;         ;; "/path/to/some/collection/"           ;; foo-mode and bar-mode snippet collection
@@ -420,6 +638,7 @@ Else return ().method for Py3."
 ;;         ))
 (add-hook 'yas-minor-mode-hook (lambda () (yas-activate-extra-mode 'fundamental-mode)))
 (global-set-key (kbd "C-S-x") 'yas/describe-tables)
+(global-set-key (kbd "C-c e") 'yas-expand)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; treemacs
@@ -443,6 +662,8 @@ Else return ().method for Py3."
 ;; Dired
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (setq dired-listing-switches "-alh")
+(global-set-key (kbd "C-s-n") 'find-name-dired)
+(global-set-key (kbd "C-c C-n") 'dired-create-empty-file)
 (setq dired-dwim-target t)
 (add-hook 'dired-mode-hook (lambda () (text-scale-decrease 2)))
 ;; (add-to-list 'dired-compress-files-alist '("\\.info\\.gz\\'" . "tar -cf - %i | gzip -c9 > %o"))
@@ -461,6 +682,11 @@ Else return ().method for Py3."
 
 (require 'vterm)
 (define-key vterm-mode-map [remap xah-backward-kill-word] #'vterm-send-C-w)
+(define-key vterm-mode-map [remap xah-beginning-of-line-or-block] #'vterm-send-C-a)
+(define-key vterm-mode-map [remap undo] #'vterm-undo)
+(define-key vterm-mode-map [remap vterm-send-M-p] #'vterm-send-up)
+(define-key vterm-mode-map [remap vterm-send-M-n] #'vterm-send-down)
+(define-key vterm-mode-map [remap xah-end-of-line-or-block] #'vterm-send-C-e)
 (define-key vterm-mode-map [remap backward-kill-word] #'vterm-send-C-w)
 (define-key vterm-mode-map [remap xah-kill-word] #'vterm-send-M-d)
 (define-key vterm-mode-map [remap kill-line] #'vterm-send-M-d)
@@ -491,7 +717,9 @@ Else return ().method for Py3."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Workspace/Layouts
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(setq eyebrowse-keymap-prefix (kbd "s-i"))
+(setq eyebrowse-keymap-prefix (kbd "C-s-i"))
+(global-set-key (kbd "C-s-,") 'eyebrowse-prev-window-config)
+(global-set-key (kbd "C-s-.") 'eyebrowse-next-window-config)
 (eyebrowse-mode t)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -572,7 +800,7 @@ Else return ().method for Py3."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (require 'bm)
 
-(setq bm-cycle-all-buffers t)
+;; (setq bm-cycle-all-buffers t)
 (setq bm-repository-file "~/.emacs.d/bm-repository")
 (setq-default bm-buffer-persistence t)
 (add-hook 'after-init-hook 'bm-repository-load)
@@ -589,5 +817,21 @@ Else return ().method for Py3."
 (global-set-key (kbd "<C-f3>") 'bm-remove-all-current-buffer)
 (global-set-key (kbd "C-s-b") 'bm-show-all)
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Sarthak prefix
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(define-prefix-command 'sarthak-keymap)
+(define-key sarthak-keymap (kbd "d") 'dap-debug)
+(define-key sarthak-keymap (kbd "b") 'dap-breakpoint-toggle)
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Dap mode
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(require 'dap-mode)
+(require 'dap-python)
+(setq dap-python-debugger 'debugpy)
+(global-set-key (kbd "C-c g") 'sarthak-keymap)
+(setq dap-auto-configure-features '(sessions locals controls tooltip))
+
+(provide 'init-local)
 ;;; init-local.el ends here

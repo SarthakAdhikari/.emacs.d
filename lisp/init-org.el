@@ -374,6 +374,7 @@ typical word processor."
      (octave . t)
      (plantuml . t)
      (python . t)
+     (js . t)
      (ruby . t)
      (screen . nil)
      (,(if (locate-library "ob-sh") 'sh 'shell) . t)

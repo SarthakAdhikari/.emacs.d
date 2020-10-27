@@ -34,7 +34,7 @@
 ;;       (with-eval-after-load 'python
 ;;         (add-to-list 'company-backends 'company-anaconda)))))
 
-(add-hook 'python-mode-hook 'lsp)
+(add-hook 'python-mode-hook 'lsp-deferred)
 
 (when (maybe-require-package 'toml-mode)
   (add-to-list 'auto-mode-alist '("poetry\\.lock\\'" . toml-mode)))
